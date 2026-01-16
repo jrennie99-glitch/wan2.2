@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}WAN 2.2 Dream Studio{% endblock %}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        .app-shell { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 240px;
+            background: var(--card-bg);
+            border-right: 1px solid var(--border);
+            padding: 20px 0;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+        }
+        .sidebar-logo {
+            padding: 0 20px 20px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 20px;
+        }
+        .sidebar-logo h1 {
+            font-size: 1.4rem;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .sidebar-logo p { font-size: 12px; color: var(--text-muted); }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .nav-item:hover { background: var(--bg); color: var(--text); }
+        .nav-item.active { background: var(--primary); color: white; }
+        .nav-item .icon { font-size: 18px; }
+        .main-content {
+            flex: 1;
+            margin-left: 240px;
+            padding: 30px;
+            max-width: 1200px;
+        }
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .main-content { margin-left: 0; }
+        }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <div class="app-shell">
+        <nav class="sidebar">
+            <div class="sidebar-logo">
+                <h1>✨ WAN 2.2</h1>
+                <p>Dream Studio</p>
+            </div>
+            <a href="/" class="nav-item {% if page == 'create' %}active{% endif %}">
+                <span class="icon">🎬</span> New Generation
+            </a>
+            <a href="/gallery" class="nav-item {% if page == 'gallery' %}active{% endif %}">
+                <span class="icon">🖼️</span> Gallery
+            </a>
+            <a href="/history" class="nav-item {% if page == 'history' %}active{% endif %}">
+                <span class="icon">📜</span> History
+            </a>
+            <a href="/settings" class="nav-item {% if page == 'settings' %}active{% endif %}">
+                <span class="icon">⚙️</span> Settings
+            </a>
+        </nav>
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
