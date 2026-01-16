@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.job_id }} - WAN 2.2 Dream Studio{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 16px;">
+    <a href="/gallery" style="color: var(--primary); text-decoration: none;">← Back to Gallery</a>
+</div>
+
+<h2 style="margin-bottom: 8px;">📋 Job Details</h2>
+<p style="color: var(--text-muted); margin-bottom: 24px;">Job ID: {{ job.job_id }}</p>
+
+<div class="card">
+    {% if job.video_url %}
+    <div style="margin-bottom: 20px;">
+        <video src="{{ job.video_url }}" controls style="width: 100%; max-height: 500px; border-radius: 12px; background: #000;"></video>
+    </div>
+    <div style="margin-bottom: 20px;">
+        <a href="{{ job.video_url }}" download class="btn"><span>⬇️</span> Download Video</a>
+    </div>
+    {% elif job.status == 'completed' %}
+    <div class="warning-banner" style="margin-bottom: 20px;">
+        ⚠️ Video generation complete but no video URL available. RunPod may not be connected yet.
+    </div>
+    {% endif %}
+    
+    <div style="display: grid; gap: 16px;">
+        <div>
+            <label style="font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase;">Status</label>
+            <p style="margin-top: 4px;">
+                <span class="history-status {{ job.status }}">{{ job.status }}</span>
+            </p>
+        </div>
+        
+        <div>
+            <label style="font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase;">Prompt</label>
+            <p style="margin-top: 4px; background: var(--bg); padding: 12px; border-radius: 8px;">{{ job.prompt }}</p>
+        </div>
+        
+        {% if job.negative_prompt %}
+        <div>
+            <label style="font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase;">Negative Prompt</label>
+            <p style="margin-top: 4px; background: var(--bg); padding: 12px; border-radius: 8px;">{{ job.negative_prompt }}</p>
+        </div>
+        {% endif %}
+        
+        {% if job.error %}
+        <div>
+            <label style="font-weight: 600; color: var(--error); font-size: 12px; text-transform: uppercase;">Error</label>
+            <p style="margin-top: 4px; background: rgba(239, 68, 68, 0.1); padding: 12px; border-radius: 8px; color: var(--error);">{{ job.error }}</p>
+        </div>
+        {% endif %}
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px;">
+            <div>
+                <label style="font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase;">Duration</label>
+                <p style="margin-top: 4px;">{{ job.duration_seconds or 4 }}s</p>
+            </div>
+            <div>
+                <label style="font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase;">FPS</label>
+                <p style="margin-top: 4px;">{{ job.fps or 24 }}</p>
+            </div>
+            <div>
+                <label style="font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase;">Steps</label>
+                <p style="margin-top: 4px;">{{ job.steps or 30 }}</p>
+            </div>
+            <div>
+                <label style="font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase;">CFG Scale</label>
+                <p style="margin-top: 4px;">{{ job.cfg_scale or 7.5 }}</p>
+            </div>
+            <div>
+                <label style="font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase;">Seed</label>
+                <p style="margin-top: 4px;">{{ job.seed if job.seed and job.seed > 0 else 'Random' }}</p>
+            </div>
+            <div>
+                <label style="font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase;">Resolution</label>
+                <p style="margin-top: 4px;">{{ job.width or 512 }}x{{ job.height or 512 }}</p>
+            </div>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+            <div>
+                <label style="font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase;">Created</label>
+                <p style="margin-top: 4px;">{{ job.created_at }}</p>
+            </div>
+            {% if job.completed_at %}
+            <div>
+                <label style="font-weight: 600; color: var(--text-muted); font-size: 12px; text-transform: uppercase;">Completed</label>
+                <p style="margin-top: 4px;">{{ job.completed_at }}</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div style="margin-top: 20px;">
+    <a href="/" class="btn"><span>🎬</span> Create New Video</a>
+</div>
+{% endblock %}

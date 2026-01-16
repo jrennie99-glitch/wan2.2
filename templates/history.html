@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}History - WAN 2.2 Dream Studio{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 8px;">📜 Generation History</h2>
+<p style="color: var(--text-muted); margin-bottom: 24px;">View all your video generation jobs</p>
+
+{% if jobs %}
+<div class="card" style="padding: 0;">
+    <div class="history-list" style="gap: 0;">
+    {% for job in jobs %}
+        <a href="/job/{{ job.job_id }}" class="history-item" style="text-decoration: none; color: inherit; border-bottom: 1px solid var(--border);">
+            <div class="history-info">
+                <div class="history-prompt">{{ job.prompt[:60] }}{% if job.prompt|length > 60 %}...{% endif %}</div>
+                <div class="history-time">{{ job.created_at[:19].replace('T', ' ') }}</div>
+            </div>
+            <span class="history-status {{ job.status }}">{{ job.status }}</span>
+        </a>
+    {% endfor %}
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="empty-state">
+        <p>No generation history yet.</p>
+        <a href="/" class="btn" style="margin-top: 16px;">Create Your First Video</a>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
