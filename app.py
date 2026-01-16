@@ -97,8 +97,8 @@ async def lifespan(app: FastAPI):
 # FastAPI App
 # =============================================================================
 app = FastAPI(
-    title="WAN 2.2 Dream Studio",
-    description="AI Video Generation Platform powered by WAN 2.2",
+    title="Dream Studio",
+    description="AI Video Generation Platform - Powered by WAN 2.2",
     version="3.0.0",
     lifespan=lifespan
 )
