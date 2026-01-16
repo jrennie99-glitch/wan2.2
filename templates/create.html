@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}Create - WAN 2.2 Dream Studio{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 8px;">🎬 Create New Video</h2>
+<p style="color: var(--text-muted); margin-bottom: 24px;">Transform your ideas into stunning AI-generated videos</p>
+
+{% if not runpod_configured %}
+<div class="warning-banner">
+    ⚠️ Compute not connected yet. Go to <a href="/settings" style="color: inherit; text-decoration: underline;">Settings</a> to configure RunPod.
+</div>
+{% endif %}
+
+<div class="card prompt-section">
+    <label style="font-weight: 600; margin-bottom: 8px; display: block;">Prompt</label>
+    <textarea id="promptInput" placeholder="Describe your dream video... e.g., 'A majestic eagle soaring through golden sunset clouds, cinematic 4K'"></textarea>
+    
+    <details style="margin-top: 16px;">
+        <summary style="cursor: pointer; color: var(--text-muted);">Advanced Options</summary>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px;">
+            <div>
+                <label style="font-size: 14px; color: var(--text-muted);">Negative Prompt</label>
+                <input type="text" id="negativePrompt" placeholder="Things to avoid..." style="width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); margin-top: 4px;">
+            </div>
+            <div>
+                <label style="font-size: 14px; color: var(--text-muted);">Seed (-1 = random)</label>
+                <input type="number" id="seed" value="-1" style="width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); margin-top: 4px;">
+            </div>
+            <div>
+                <label style="font-size: 14px; color: var(--text-muted);">Steps</label>
+                <input type="number" id="steps" value="30" min="1" max="100" style="width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); margin-top: 4px;">
+            </div>
+            <div>
+                <label style="font-size: 14px; color: var(--text-muted);">CFG Scale</label>
+                <input type="number" id="cfgScale" value="7.5" step="0.5" min="1" max="20" style="width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); margin-top: 4px;">
+            </div>
+            <div>
+                <label style="font-size: 14px; color: var(--text-muted);">Duration (seconds)</label>
+                <input type="number" id="duration" value="4" step="0.5" min="1" max="30" style="width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); margin-top: 4px;">
+            </div>
+            <div>
+                <label style="font-size: 14px; color: var(--text-muted);">FPS</label>
+                <input type="number" id="fps" value="24" min="8" max="60" style="width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); margin-top: 4px;">
+            </div>
+            <div>
+                <label style="font-size: 14px; color: var(--text-muted);">Width</label>
+                <input type="number" id="width" value="512" step="64" min="256" max="1024" style="width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); margin-top: 4px;">
+            </div>
+            <div>
+                <label style="font-size: 14px; color: var(--text-muted);">Height</label>
+                <input type="number" id="height" value="512" step="64" min="256" max="1024" style="width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); margin-top: 4px;">
+            </div>
+        </div>
+        <div style="margin-top: 16px;">
+            <label style="font-size: 14px; color: var(--text-muted);">Reference Image (optional)</label>
+            <input type="file" id="imageUpload" accept="image/*" style="width: 100%; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); margin-top: 4px;">
+            <div id="imagePreview" style="margin-top: 8px;"></div>
+        </div>
+    </details>
+
+    <div class="actions">
+        <button class="btn" id="generateBtn" onclick="submitPrompt()">
+            <span>🚀</span> Generate Video
+        </button>
+    </div>
+
+    <div class="status-bar hidden" id="statusBar">
+        <div class="spinner" id="statusSpinner"></div>
+        <div class="status-text">
+            <div class="label" id="statusLabel">Processing...</div>
+            <div class="detail" id="statusDetail">Starting generation</div>
+        </div>
+    </div>
+    <div class="progress-bar hidden" id="progressBar">
+        <div class="fill" id="progressFill" style="width: 0%"></div>
+    </div>
+    <div class="error-message hidden" id="errorMessage"></div>
+</div>
+
+<div class="card video-section hidden" id="videoSection">
+    <video class="video-player" id="videoPlayer" controls></video>
+    <div class="video-actions">
+        <a class="btn" id="downloadBtn" download><span>⬇️</span> Download</a>
+        <button class="btn btn-secondary" onclick="resetForm()"><span>🔄</span> New Generation</button>
+        <a class="btn btn-secondary" id="viewDetailBtn" href="#"><span>📋</span> View Details</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentJobId = null;
+let pollInterval = null;
+let uploadedImageUrl = null;
+
+document.getElementById('imageUpload').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.ok) {
+            uploadedImageUrl = data.url;
+            document.getElementById('imagePreview').innerHTML = '<img src="' + data.url + '" style="max-width: 200px; border-radius: 8px;">';
+        }
+    } catch (err) { console.error('Upload failed:', err); }
+});
+
+async function submitPrompt() {
+    const prompt = document.getElementById('promptInput').value.trim();
+    if (!prompt) { showError('Please enter a prompt'); return; }
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = true;
+    hideError();
+    showStatus('Submitting...', 'Sending your prompt to the server');
+    const payload = {
+        prompt: prompt,
+        negative_prompt: document.getElementById('negativePrompt').value,
+        seed: parseInt(document.getElementById('seed').value) || -1,
+        steps: parseInt(document.getElementById('steps').value) || 30,
+        cfg_scale: parseFloat(document.getElementById('cfgScale').value) || 7.5,
+        duration_seconds: parseFloat(document.getElementById('duration').value) || 4.0,
+        fps: parseInt(document.getElementById('fps').value) || 24,
+        width: parseInt(document.getElementById('width').value) || 512,
+        height: parseInt(document.getElementById('height').value) || 512,
+        image_url: uploadedImageUrl
+    };
+    try {
+        const res = await fetch('/api/jobs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) { throw new Error(data.error || data.detail || 'Failed to create job'); }
+        currentJobId = data.job_id;
+        showStatus('Queued', 'Job ID: ' + data.job_id);
+        showProgress(5);
+        startPolling(data.job_id);
+    } catch (err) {
+        showError(err.message);
+        hideStatus();
+        btn.disabled = false;
+    }
+}
+
+function startPolling(jobId) {
+    pollInterval = setInterval(async () => {
+        try {
+            const res = await fetch('/api/jobs/' + jobId);
+            const data = await res.json();
+            showProgress(data.progress || 0);
+            showStatus(data.status.charAt(0).toUpperCase() + data.status.slice(1), data.message || '');
+            if (data.status === 'completed') {
+                clearInterval(pollInterval);
+                showProgress(100);
+                setTimeout(() => {
+                    hideStatus();
+                    showVideo(data.video_url, jobId);
+                    document.getElementById('generateBtn').disabled = false;
+                }, 500);
+            } else if (data.status === 'failed') {
+                clearInterval(pollInterval);
+                showError(data.error || 'Generation failed');
+                hideStatus();
+                document.getElementById('generateBtn').disabled = false;
+            }
+        } catch (err) { console.error('Poll error:', err); }
+    }, 2000);
+}
+
+function showStatus(label, detail) {
+    document.getElementById('statusBar').classList.remove('hidden');
+    document.getElementById('progressBar').classList.remove('hidden');
+    document.getElementById('statusLabel').textContent = label;
+    document.getElementById('statusDetail').textContent = detail;
+}
+function hideStatus() {
+    document.getElementById('statusBar').classList.add('hidden');
+    document.getElementById('progressBar').classList.add('hidden');
+}
+function showProgress(percent) { document.getElementById('progressFill').style.width = percent + '%'; }
+function showError(message) {
+    const el = document.getElementById('errorMessage');
+    el.textContent = message;
+    el.classList.remove('hidden');
+}
+function hideError() { document.getElementById('errorMessage').classList.add('hidden'); }
+function showVideo(url, jobId) {
+    const section = document.getElementById('videoSection');
+    const player = document.getElementById('videoPlayer');
+    document.getElementById('downloadBtn').href = url;
+    document.getElementById('viewDetailBtn').href = '/job/' + jobId;
+    player.src = url;
+    section.classList.remove('hidden');
+    player.play();
+}
+function resetForm() {
+    document.getElementById('promptInput').value = '';
+    document.getElementById('videoSection').classList.add('hidden');
+    document.getElementById('videoPlayer').pause();
+    document.getElementById('videoPlayer').src = '';
+    document.getElementById('imagePreview').innerHTML = '';
+    uploadedImageUrl = null;
+    hideError();
+    hideStatus();
+    currentJobId = null;
+    if (pollInterval) clearInterval(pollInterval);
+}
+</script>
+{% endblock %}
