@@ -1,9 +1,12 @@
-# WAN 2.2 Dream Studio - Render Deployment Guide
+# Dream Studio - Render Deployment Guide
+## Powered by WAN 2.2
 
 ## Overview
-This is a DreamAI-style video generation web UI powered by WAN 2.2, ready for deployment on Render.
+Dream Studio is a DreamAI-style video generation web UI powered by WAN 2.2, ready for deployment on Render.
 
-## Render Deployment
+---
+
+## Quick Start - Render Deployment
 
 ### Build Command
 ```bash
@@ -15,7 +18,9 @@ pip install -r requirements.txt
 uvicorn app:app --host 0.0.0.0 --port $PORT
 ```
 
-### Environment Variables
+---
+
+## Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -25,56 +30,68 @@ uvicorn app:app --host 0.0.0.0 --port $PORT
 | `RUNPOD_ENDPOINT_URL` | Optional | Full RunPod URL (alternative to ENDPOINT_ID) |
 | `PUBLIC_BASE_URL` | Optional | Your app's public URL for webhooks |
 
-### Modes
+---
 
-**Simulation Mode (Default)**
-- When `RUNPOD_API_KEY` and `RUNPOD_ENDPOINT_ID` are NOT set
+## Operating Modes
+
+### Simulation Mode (Default)
+- Active when `RUNPOD_API_KEY` and `RUNPOD_ENDPOINT_ID` are NOT set
 - Jobs complete after 5-10 seconds with simulated progress
 - Perfect for UI testing and development
+- No actual video generation occurs
 
-**Production Mode**
-- When `RUNPOD_API_KEY` AND (`RUNPOD_ENDPOINT_ID` or `RUNPOD_ENDPOINT_URL`) are set
+### Production Mode
+- Active when `RUNPOD_API_KEY` AND (`RUNPOD_ENDPOINT_ID` or `RUNPOD_ENDPOINT_URL`) are set
 - Real video generation via RunPod
 - Polls RunPod for job status until completion
+- Returns actual video URLs from RunPod
+
+---
 
 ## Features
 
 ### DreamAI-Style Interface
 - **Left Sidebar**: Navigation (New Generation, Gallery, History, Settings)
-- **Main Area**: 
+- **Create Page**: 
   - Large prompt textarea
   - "Generate Video" button
   - Real-time status with progress bar
-  - Video player with download button
+  - Video player with download button when complete
+- **Gallery**: Browse completed videos
+- **History**: View all generation jobs
+- **Settings**: RunPod configuration status
 
-### Settings
-- Negative Prompt
-- Seed (-1 = random)
-- Steps (default: 30)
-- CFG Scale (default: 7.5)
-- Duration (default: 4 seconds)
-- FPS (default: 24)
-- Width/Height (default: 512x512)
-- Reference Image upload
+### Generation Settings
+| Setting | Default | Range | Description |
+|---------|---------|-------|-------------|
+| Duration | 4s | 1-30s | Video length |
+| FPS | 24 | 8-60 | Frames per second |
+| Steps | 30 | 1-100 | Diffusion steps |
+| Seed | -1 | Any | Random if -1 |
+| CFG Scale | 7.5 | 1-20 | Guidance strength |
+| Width | 512 | 256-1024 | Video width |
+| Height | 512 | 256-1024 | Video height |
 
-### API Endpoints
+---
 
+## API Endpoints
+
+### Health & Status
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET/HEAD | `/` | Main create page |
-| GET/HEAD | `/health` | Health check for Render |
-| GET | `/gallery` | View completed videos |
-| GET | `/history` | All generation history |
-| GET | `/settings` | RunPod configuration |
-| GET | `/job/{id}` | Job details page |
+| GET/HEAD | `/` | Main create page (HTML) |
+| GET/HEAD | `/health` | Health check `{"ok": true}` |
+| GET | `/docs` | Swagger API documentation |
+
+### Job Management
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | POST | `/api/jobs` | Create new job |
 | GET | `/api/jobs` | List all jobs |
 | GET | `/api/jobs/{id}` | Get job status |
 | POST | `/api/upload` | Upload reference image |
-| POST | `/api/test-connection` | Test RunPod connection |
 
-### API Request Format
-
+### Create Job Request
 ```json
 POST /api/jobs
 {
@@ -84,15 +101,14 @@ POST /api/jobs
     "duration": 4,
     "fps": 24,
     "steps": 30,
-    "seed": 123,
+    "seed": -1,
     "guidance": 7.5,
     "aspect": "16:9"
   }
 }
 ```
 
-### API Response Format
-
+### Create Job Response
 ```json
 {
   "ok": true,
@@ -101,27 +117,27 @@ POST /api/jobs
 }
 ```
 
-### Job Status Response
-
+### Get Job Status Response
 ```json
-GET /api/jobs/{job_id}
 {
   "job_id": "abc12345",
-  "status": "queued|running|completed|failed",
-  "video_url": null | "/path/to/video.mp4",
-  "error": null | "Error message",
-  "progress": 0-100,
-  "message": "Status message"
+  "status": "completed",
+  "video_url": "/media/abc12345.mp4",
+  "error": null,
+  "progress": 100,
+  "message": "Generation complete!"
 }
 ```
+
+---
 
 ## File Structure
 
 ```
 /app/
 ├── app.py              # Main FastAPI application
-├── requirements.txt    # Python dependencies
-├── templates/
+├── requirements.txt    # Python dependencies (minimal)
+├── templates/          # Jinja2 HTML templates
 │   ├── base.html       # Base template with sidebar
 │   ├── create.html     # Video creation page
 │   ├── gallery.html    # Video gallery
@@ -132,27 +148,32 @@ GET /api/jobs/{job_id}
 │   ├── styles.css      # CSS styles
 │   └── app.js          # Frontend JavaScript
 ├── media/              # Generated videos
-└── uploads/            # Uploaded images
+├── uploads/            # Uploaded reference images
+└── jobs.json           # Job storage (auto-created)
 ```
+
+---
 
 ## Troubleshooting
 
 ### TemplateNotFound Error
-The app uses absolute paths for templates. Ensure you're running from the `/app` directory.
+The app uses absolute paths for templates. Ensure you're running from the correct directory.
 
 ### 405 on HEAD /
-Fixed! The `/` route now accepts both GET and HEAD methods for Render health checks.
+Fixed! The `/` route accepts both GET and HEAD methods for Render health checks.
 
 ### No open ports detected
-Ensure your start command uses `$PORT` (without quotes):
+Ensure your start command uses `$PORT`:
 ```bash
 uvicorn app:app --host 0.0.0.0 --port $PORT
 ```
 
 ### RunPod not working
 1. Check Settings page shows "Configured"
-2. Click "Test Connection" to verify
-3. Ensure both `RUNPOD_API_KEY` and `RUNPOD_ENDPOINT_ID` are set
+2. Verify both `RUNPOD_API_KEY` and `RUNPOD_ENDPOINT_ID` are set
+3. Ensure your RunPod endpoint is running
+
+---
 
 ## Dependencies
 
@@ -166,4 +187,19 @@ httpx>=0.26.0
 requests>=2.31.0
 ```
 
-No torch/torchvision needed - this is a gateway service only.
+**Note**: No torch/torchvision needed - this is a gateway service only. The heavy ML processing happens on RunPod.
+
+---
+
+## Security Notes
+
+- API keys are never exposed in the frontend
+- Jobs are stored in memory with optional file persistence
+- No database required to run
+- CORS is configured for same-origin requests
+
+---
+
+## License
+
+This project uses WAN 2.2 for video generation. See LICENSE.txt for details.
