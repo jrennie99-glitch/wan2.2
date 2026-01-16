@@ -1,13 +1,16 @@
 import os
 import uuid
+import json
 import asyncio
+import shutil
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, Request, HTTPException, Form
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, HTTPException, Form, UploadFile, File, BackgroundTasks
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -18,97 +21,111 @@ from pydantic import BaseModel
 RUNPOD_ENDPOINT_URL = os.environ.get("RUNPOD_ENDPOINT_URL", "")
 RUNPOD_API_KEY = os.environ.get("RUNPOD_API_KEY", "")
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
-REDIS_URL = os.environ.get("REDIS_URL", "")
+JOBS_FILE = Path("jobs.json")
+MEDIA_DIR = Path("media")
+UPLOADS_DIR = Path("uploads")
+
+# Ensure directories exist
+MEDIA_DIR.mkdir(exist_ok=True)
+UPLOADS_DIR.mkdir(exist_ok=True)
 
 # =============================================================================
-# Job Storage (In-Memory + Optional Redis)
+# Job Storage (File-based for persistence)
 # =============================================================================
-jobs_store: Dict[str, Dict[str, Any]] = {}
-redis_client = None
-
-def init_redis():
-    global redis_client
-    if REDIS_URL:
+def load_jobs() -> Dict[str, Dict[str, Any]]:
+    if JOBS_FILE.exists():
         try:
-            import redis
-            redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-            redis_client.ping()
-            print(f"Redis connected: {REDIS_URL[:30]}...")
-        except Exception as e:
-            print(f"Redis connection failed: {e}. Using in-memory storage.")
-            redis_client = None
+            with open(JOBS_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
 
+def save_jobs(jobs: Dict[str, Dict[str, Any]]):
+    with open(JOBS_FILE, "w") as f:
+        json.dump(jobs, f, indent=2)
 
 def get_job(job_id: str) -> Optional[Dict[str, Any]]:
-    if redis_client:
-        try:
-            import json
-            data = redis_client.get(f"job:{job_id}")
-            return json.loads(data) if data else None
-        except:
-            pass
-    return jobs_store.get(job_id)
+    jobs = load_jobs()
+    return jobs.get(job_id)
 
 def save_job(job_id: str, job_data: Dict[str, Any]):
-    jobs_store[job_id] = job_data
-    if redis_client:
-        try:
-            import json
-            redis_client.setex(f"job:{job_id}", 86400, json.dumps(job_data))
-        except:
-            pass
+    jobs = load_jobs()
+    jobs[job_id] = job_data
+    save_jobs(jobs)
 
+def get_all_jobs() -> List[Dict[str, Any]]:
+    jobs = load_jobs()
+    job_list = list(jobs.values())
+    job_list.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return job_list
 
-def get_recent_jobs(limit: int = 10) -> list:
-    jobs = list(jobs_store.values())
-    jobs.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-    return jobs[:limit]
+def get_recent_jobs(limit: int = 50) -> List[Dict[str, Any]]:
+    return get_all_jobs()[:limit]
 
 # =============================================================================
 # Lifespan
 # =============================================================================
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_redis()
+    if not JOBS_FILE.exists():
+        save_jobs({})
     yield
 
 # =============================================================================
 # FastAPI App
 # =============================================================================
 app = FastAPI(
-    title="WAN 2.2 Dream Generator",
-    description="Render-ready FastAPI gateway for WAN 2.2 video generation",
-    version="2.0.0",
+    title="WAN 2.2 Dream Studio",
+    description="AI Video Generation Platform powered by WAN 2.2",
+    version="3.0.0",
     lifespan=lifespan
 )
 
-# Mount static files and templates
+# Mount static files, media, and templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/media", StaticFiles(directory="media"), name="media")
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 templates = Jinja2Templates(directory="templates")
 
 # =============================================================================
 # Pydantic Models
 # =============================================================================
-class PromptRequest(BaseModel):
+class JobCreateRequest(BaseModel):
     prompt: str
+    negative_prompt: Optional[str] = ""
+    seed: Optional[int] = -1
+    steps: Optional[int] = 30
+    cfg_scale: Optional[float] = 7.5
+    duration_seconds: Optional[float] = 4.0
+    fps: Optional[int] = 24
+    width: Optional[int] = 512
+    height: Optional[int] = 512
+    image_url: Optional[str] = None
+
+class SettingsUpdateRequest(BaseModel):
+    runpod_endpoint_url: Optional[str] = None
+    runpod_api_key: Optional[str] = None
 
 # =============================================================================
 # RunPod Integration
 # =============================================================================
-async def call_runpod(job_id: str, prompt: str):
+async def process_job(job_id: str):
     job = get_job(job_id)
     if not job:
         return
     
     if not RUNPOD_ENDPOINT_URL:
         job["status"] = "failed"
-        job["error"] = "RunPod not configured. Set RUNPOD_ENDPOINT_URL environment variable."
+        job["error"] = "RunPod not configured. Go to Settings to configure."
+        job["completed_at"] = datetime.utcnow().isoformat() + "Z"
         save_job(job_id, job)
         return
     
     try:
         job["status"] = "running"
-        job["message"] = "Sending request to RunPod..."
+        job["message"] = "Connecting to RunPod..."
+        job["progress"] = 5
         save_job(job_id, job)
         
         headers = {"Content-Type": "application/json"}
@@ -117,13 +134,26 @@ async def call_runpod(job_id: str, prompt: str):
         
         payload = {
             "input": {
-                "prompt": prompt,
+                "prompt": job.get("prompt", ""),
+                "negative_prompt": job.get("negative_prompt", ""),
+                "seed": job.get("seed", -1),
+                "steps": job.get("steps", 30),
+                "cfg_scale": job.get("cfg_scale", 7.5),
+                "duration_seconds": job.get("duration_seconds", 4.0),
+                "fps": job.get("fps", 24),
+                "width": job.get("width", 512),
+                "height": job.get("height", 512),
+                "image_url": job.get("image_url"),
                 "job_id": job_id,
-                "webhook_url": f"{PUBLIC_BASE_URL}/webhook/{job_id}" if PUBLIC_BASE_URL else None
+                "webhook_url": f"{PUBLIC_BASE_URL}/api/webhook/{job_id}" if PUBLIC_BASE_URL else None
             }
         }
         
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            job["message"] = "Starting generation on RunPod..."
+            job["progress"] = 10
+            save_job(job_id, job)
+            
             response = await client.post(
                 f"{RUNPOD_ENDPOINT_URL}/run",
                 json=payload,
@@ -134,10 +164,11 @@ async def call_runpod(job_id: str, prompt: str):
             
             runpod_job_id = runpod_data.get("id")
             job["runpod_job_id"] = runpod_job_id
-            job["message"] = f"RunPod job started: {runpod_job_id}"
+            job["message"] = f"RunPod job: {runpod_job_id}"
+            job["progress"] = 15
             save_job(job_id, job)
             
-            max_polls = 300
+            max_polls = 600
             poll_count = 0
             
             while poll_count < max_polls:
@@ -149,56 +180,110 @@ async def call_runpod(job_id: str, prompt: str):
                     headers=headers
                 )
                 status_data = status_response.json()
-                runpod_status = status_data.get("status", "").lower()
+                runpod_status = status_data.get("status", "").upper()
                 
-                if runpod_status == "completed":
+                if runpod_status == "COMPLETED":
                     output = status_data.get("output", {})
-                    video_url = output.get("video_url") or output.get("url")
+                    video_url = output.get("video_url") or output.get("url") or output.get("result")
+                    
                     job["status"] = "completed"
                     job["video_url"] = video_url
-                    job["message"] = "Video generation complete!"
+                    job["output"] = output
+                    job["message"] = "Generation complete!"
+                    job["progress"] = 100
+                    job["completed_at"] = datetime.utcnow().isoformat() + "Z"
                     save_job(job_id, job)
                     return
-                
-                elif runpod_status == "failed":
+                    
+                elif runpod_status == "FAILED":
                     error_msg = status_data.get("error", "RunPod job failed")
                     job["status"] = "failed"
                     job["error"] = error_msg
+                    job["completed_at"] = datetime.utcnow().isoformat() + "Z"
                     save_job(job_id, job)
                     return
-                
+                    
+                elif runpod_status == "IN_PROGRESS":
+                    progress = min(15 + poll_count // 3, 95)
+                    job["message"] = f"Generating video... ({runpod_status})"
+                    job["progress"] = progress
+                    save_job(job_id, job)
+                    
                 else:
-                    job["message"] = f"RunPod status: {runpod_status}"
+                    job["message"] = f"Status: {runpod_status}"
                     save_job(job_id, job)
             
             job["status"] = "failed"
-            job["error"] = "Job timed out after 10 minutes"
+            job["error"] = "Job timed out after 20 minutes"
+            job["completed_at"] = datetime.utcnow().isoformat() + "Z"
             save_job(job_id, job)
             
     except httpx.HTTPStatusError as e:
         job["status"] = "failed"
         job["error"] = f"RunPod API error: {e.response.status_code}"
+        job["completed_at"] = datetime.utcnow().isoformat() + "Z"
         save_job(job_id, job)
     except Exception as e:
         job["status"] = "failed"
         job["error"] = f"Error: {str(e)}"
+        job["completed_at"] = datetime.utcnow().isoformat() + "Z"
         save_job(job_id, job)
 
 # =============================================================================
-# Routes
+# Page Routes
 # =============================================================================
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    runpod_configured = bool(RUNPOD_ENDPOINT_URL)
-    recent_jobs = get_recent_jobs(10)
-    return templates.TemplateResponse("index.html", {
+async def page_create(request: Request):
+    return templates.TemplateResponse("create.html", {
         "request": request,
-        "runpod_configured": runpod_configured,
-        "recent_jobs": recent_jobs
+        "page": "create",
+        "runpod_configured": bool(RUNPOD_ENDPOINT_URL)
     })
 
-@app.post("/jobs")
-async def create_job(request: PromptRequest):
+@app.get("/gallery", response_class=HTMLResponse)
+async def page_gallery(request: Request):
+    jobs = [j for j in get_recent_jobs(100) if j.get("status") == "completed" and j.get("video_url")]
+    return templates.TemplateResponse("gallery.html", {
+        "request": request,
+        "page": "gallery",
+        "jobs": jobs
+    })
+
+@app.get("/history", response_class=HTMLResponse)
+async def page_history(request: Request):
+    jobs = get_recent_jobs(100)
+    return templates.TemplateResponse("history.html", {
+        "request": request,
+        "page": "history",
+        "jobs": jobs
+    })
+
+@app.get("/settings", response_class=HTMLResponse)
+async def page_settings(request: Request):
+    return templates.TemplateResponse("settings.html", {
+        "request": request,
+        "page": "settings",
+        "runpod_configured": bool(RUNPOD_ENDPOINT_URL),
+        "runpod_endpoint": RUNPOD_ENDPOINT_URL[:50] + "..." if len(RUNPOD_ENDPOINT_URL) > 50 else RUNPOD_ENDPOINT_URL,
+        "has_api_key": bool(RUNPOD_API_KEY)
+    })
+
+@app.get("/job/{job_id}", response_class=HTMLResponse)
+async def page_job_detail(request: Request, job_id: str):
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return templates.TemplateResponse("job_detail.html", {
+        "request": request,
+        "page": "gallery",
+        "job": job
+    })
+
+# =============================================================================
+# API Routes
+# =============================================================================
+@app.post("/api/jobs")
+async def api_create_job(request: JobCreateRequest, background_tasks: BackgroundTasks):
     prompt = request.prompt.strip()
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
@@ -207,72 +292,129 @@ async def create_job(request: PromptRequest):
     job_data = {
         "job_id": job_id,
         "prompt": prompt,
+        "negative_prompt": request.negative_prompt or "",
+        "seed": request.seed if request.seed and request.seed > 0 else -1,
+        "steps": request.steps or 30,
+        "cfg_scale": request.cfg_scale or 7.5,
+        "duration_seconds": request.duration_seconds or 4.0,
+        "fps": request.fps or 24,
+        "width": request.width or 512,
+        "height": request.height or 512,
+        "image_url": request.image_url,
         "status": "queued",
+        "progress": 0,
+        "message": "Job queued",
         "created_at": datetime.utcnow().isoformat() + "Z",
+        "completed_at": None,
         "video_url": None,
         "error": None,
-        "message": "Job queued for processing"
+        "output": None
     }
     save_job(job_id, job_data)
-    asyncio.create_task(call_runpod(job_id, prompt))
     
-    return JSONResponse(content={
-        "ok": True,
-        "job_id": job_id,
-        "status": "queued",
-        "message": "Job created successfully"
-    })
+    background_tasks.add_task(process_job, job_id)
+    
+    return JSONResponse(content={"ok": True, "job_id": job_id, "status": "queued"})
 
-@app.get("/jobs/{job_id}")
-async def get_job_status(job_id: str):
+@app.get("/api/jobs")
+async def api_list_jobs(limit: int = 50, status: Optional[str] = None):
+    jobs = get_recent_jobs(limit)
+    if status:
+        jobs = [j for j in jobs if j.get("status") == status]
+    return JSONResponse(content={"ok": True, "jobs": jobs, "count": len(jobs)})
+
+@app.get("/api/jobs/{job_id}")
+async def api_get_job(job_id: str):
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return JSONResponse(content=job)
 
-@app.post("/webhook/{job_id}")
-async def runpod_webhook(job_id: str, request: Request):
+@app.post("/api/upload")
+async def api_upload_image(file: UploadFile = File(...)):
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    file_id = str(uuid.uuid4())[:8]
+    ext = file.filename.split(".")[-1] if "." in file.filename else "png"
+    filename = f"{file_id}.{ext}"
+    filepath = UPLOADS_DIR / filename
+    
+    with open(filepath, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    
+    return JSONResponse(content={
+        "ok": True,
+        "filename": filename,
+        "url": f"/uploads/{filename}"
+    })
+
+@app.post("/api/webhook/{job_id}")
+async def api_webhook(job_id: str, request: Request):
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
     try:
         data = await request.json()
-        status = data.get("status", "").lower()
+        status = data.get("status", "").upper()
         
-        if status == "completed":
+        if status == "COMPLETED":
             output = data.get("output", {})
             video_url = output.get("video_url") or output.get("url")
             job["status"] = "completed"
             job["video_url"] = video_url
-            job["message"] = "Video generation complete!"
-        elif status == "failed":
+            job["output"] = output
+            job["progress"] = 100
+            job["message"] = "Complete!"
+            job["completed_at"] = datetime.utcnow().isoformat() + "Z"
+        elif status == "FAILED":
             job["status"] = "failed"
             job["error"] = data.get("error", "Job failed")
+            job["completed_at"] = datetime.utcnow().isoformat() + "Z"
         else:
-            job["message"] = f"Webhook update: {status}"
+            job["message"] = f"Webhook: {status}"
         
         save_job(job_id, job)
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
+@app.post("/api/test-connection")
+async def api_test_connection():
+    if not RUNPOD_ENDPOINT_URL:
+        return JSONResponse(content={"ok": False, "error": "RUNPOD_ENDPOINT_URL not configured"})
+    
+    try:
+        headers = {}
+        if RUNPOD_API_KEY:
+            headers["Authorization"] = f"Bearer {RUNPOD_API_KEY}"
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{RUNPOD_ENDPOINT_URL}/health", headers=headers)
+            if response.status_code == 200:
+                return JSONResponse(content={"ok": True, "message": "Connection successful!"})
+            else:
+                return JSONResponse(content={"ok": False, "error": f"Status {response.status_code}"})
+    except Exception as e:
+        return JSONResponse(content={"ok": False, "error": str(e)})
+
 @app.get("/health")
 def health():
     return {
         "ok": True,
         "runpod_configured": bool(RUNPOD_ENDPOINT_URL),
-        "redis_configured": bool(redis_client)
+        "jobs_count": len(load_jobs())
     }
 
-@app.post("/prompt")
-async def prompt_submit_legacy(prompt: str = Form(...)):
-    req = PromptRequest(prompt=prompt)
-    return await create_job(req)
+# Legacy endpoints
+@app.post("/jobs")
+async def legacy_create_job(request: JobCreateRequest, background_tasks: BackgroundTasks):
+    return await api_create_job(request, background_tasks)
 
-@app.post("/prompt/json")
-async def prompt_json_legacy(request: PromptRequest):
-    return await create_job(request)
+@app.get("/jobs/{job_id}")
+async def legacy_get_job(job_id: str):
+    return await api_get_job(job_id)
 
 if __name__ == "__main__":
     import uvicorn
