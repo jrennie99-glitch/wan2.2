@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WAN 2.2 Dream Generator</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg: #0f0f23;
+            --card-bg: #1a1a2e;
+            --text: #e2e8f0;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --error: #ef4444;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            padding: 40px 0 30px;
+        }
+        header h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+        header p { color: var(--text-muted); font-size: 1.1rem; }
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .prompt-section textarea {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            color: var(--text);
+            font-size: 16px;
+            resize: vertical;
+            min-height: 120px;
+            transition: border-color 0.2s;
+        }
+        .prompt-section textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .prompt-section textarea::placeholder { color: var(--text-muted); }
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn:hover { background: var(--primary-hover); transform: translateY(-1px); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .btn-secondary {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+        .btn-secondary:hover { background: var(--border); }
+        .actions { margin-top: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            background: var(--bg);
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .status-bar.hidden { display: none; }
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .status-text { flex: 1; }
+        .status-text .label { font-weight: 600; }
+        .status-text .detail { color: var(--text-muted); font-size: 14px; }
+        .progress-bar {
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        .progress-bar .fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), #a855f7);
+            border-radius: 2px;
+            transition: width 0.3s;
+        }
+        .video-section { text-align: center; }
+        .video-section.hidden { display: none; }
+        .video-player {
+            width: 100%;
+            max-height: 500px;
+            border-radius: 12px;
+            background: #000;
+        }
+        .video-actions { margin-top: 16px; display: flex; justify-content: center; gap: 12px; }
+        .history-section h3 {
+            font-size: 1.1rem;
+            margin-bottom: 16px;
+            color: var(--text-muted);
+        }
+        .history-list { display: flex; flex-direction: column; gap: 12px; }
+        .history-item {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 12px;
+            background: var(--bg);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .history-item:hover { background: var(--border); }
+        .history-thumb {
+            width: 80px;
+            height: 45px;
+            background: var(--border);
+            border-radius: 6px;
+            object-fit: cover;
+        }
+        .history-info { flex: 1; }
+        .history-prompt {
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 500px;
+        }
+        .history-time { font-size: 12px; color: var(--text-muted); }
+        .history-status {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        .history-status.completed { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+        .history-status.processing { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+        .history-status.failed { background: rgba(239, 68, 68, 0.2); color: var(--error); }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+        }
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--error);
+            color: var(--error);
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+        .error-message.hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>✨ WAN 2.2 Dream</h1>
+            <p>Transform your ideas into stunning AI-generated videos</p>
+        </header>
+
+        <div class="card prompt-section">
+            <textarea id="promptInput" placeholder="Describe your dream video... e.g., 'A majestic eagle soaring through golden sunset clouds, cinematic 4K'"></textarea>
+            <div class="actions">
+                <button class="btn" id="generateBtn" onclick="submitPrompt()">
+                    <span>🎬</span> Generate Video
+                </button>
+            </div>
+            <div class="status-bar hidden" id="statusBar">
+                <div class="spinner" id="statusSpinner"></div>
+                <div class="status-text">
+                    <div class="label" id="statusLabel">Processing...</div>
+                    <div class="detail" id="statusDetail">Starting generation</div>
+                </div>
+            </div>
+            <div class="progress-bar hidden" id="progressBar">
+                <div class="fill" id="progressFill" style="width: 0%"></div>
+            </div>
+            <div class="error-message hidden" id="errorMessage"></div>
+        </div>
+
+        <div class="card video-section hidden" id="videoSection">
+            <video class="video-player" id="videoPlayer" controls></video>
+            <div class="video-actions">
+                <a class="btn" id="downloadBtn" download>
+                    <span>⬇️</span> Download
+                </a>
+                <button class="btn btn-secondary" onclick="resetForm()">
+                    <span>🔄</span> New Generation
+                </button>
+            </div>
+        </div>
+
+        <div class="card history-section">
+            <h3>📜 Recent Generations</h3>
+            <div class="history-list" id="historyList">
+                <div class="empty-state">No generations yet. Create your first dream!</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentJobId = null;
+        let pollInterval = null;
+        let history = JSON.parse(localStorage.getItem('wan_history') || '[]');
+
+        function renderHistory() {
+            const list = document.getElementById('historyList');
+            if (history.length === 0) {
+                list.innerHTML = '<div class="empty-state">No generations yet. Create your first dream!</div>';
+                return;
+            }
+            list.innerHTML = history.slice(0, 10).map(item => `
+                <div class="history-item" onclick="loadHistoryItem('${item.job_id}')">
+                    <div class="history-info">
+                        <div class="history-prompt">${escapeHtml(item.prompt)}</div>
+                        <div class="history-time">${new Date(item.created_at).toLocaleString()}</div>
+                    </div>
+                    <span class="history-status ${item.status}">${item.status}</span>
+                </div>
+            `).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function saveToHistory(job) {
+            const existing = history.findIndex(h => h.job_id === job.job_id);
+            if (existing >= 0) {
+                history[existing] = job;
+            } else {
+                history.unshift(job);
+            }
+            history = history.slice(0, 20);
+            localStorage.setItem('wan_history', JSON.stringify(history));
+            renderHistory();
+        }
+
+        async function submitPrompt() {
+            const prompt = document.getElementById('promptInput').value.trim();
+            if (!prompt) {
+                showError('Please enter a prompt');
+                return;
+            }
+
+            const btn = document.getElementById('generateBtn');
+            btn.disabled = true;
+            hideError();
+            showStatus('Submitting...', 'Sending your prompt to the server');
+
+            try {
+                const res = await fetch('/jobs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt })
+                });
+                const data = await res.json();
+
+                if (!res.ok || data.error) {
+                    throw new Error(data.error || data.detail || 'Failed to create job');
+                }
+
+                currentJobId = data.job_id;
+                saveToHistory({
+                    job_id: data.job_id,
+                    prompt: prompt,
+                    status: 'processing',
+                    created_at: new Date().toISOString()
+                });
+
+                showStatus('Processing...', `Job ID: ${data.job_id}`);
+                showProgress(10);
+                startPolling(data.job_id);
+
+            } catch (err) {
+                showError(err.message);
+                hideStatus();
+                btn.disabled = false;
+            }
+        }
+
+        function startPolling(jobId) {
+            let progress = 10;
+            pollInterval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/jobs/${jobId}`);
+                    const data = await res.json();
+
+                    if (data.status === 'completed') {
+                        clearInterval(pollInterval);
+                        showProgress(100);
+                        showStatus('Complete!', 'Your video is ready');
+                        
+                        setTimeout(() => {
+                            hideStatus();
+                            showVideo(data.video_url);
+                            document.getElementById('generateBtn').disabled = false;
+                        }, 500);
+
+                        const historyItem = history.find(h => h.job_id === jobId);
+                        if (historyItem) {
+                            historyItem.status = 'completed';
+                            historyItem.video_url = data.video_url;
+                            saveToHistory(historyItem);
+                        }
+
+                    } else if (data.status === 'failed') {
+                        clearInterval(pollInterval);
+                        showError(data.error || 'Generation failed');
+                        hideStatus();
+                        document.getElementById('generateBtn').disabled = false;
+
+                        const historyItem = history.find(h => h.job_id === jobId);
+                        if (historyItem) {
+                            historyItem.status = 'failed';
+                            saveToHistory(historyItem);
+                        }
+
+                    } else {
+                        progress = Math.min(progress + 5, 90);
+                        showProgress(progress);
+                        showStatus('Processing...', data.message || `Status: ${data.status}`);
+                    }
+                } catch (err) {
+                    console.error('Poll error:', err);
+                }
+            }, 2000);
+        }
+
+        function showStatus(label, detail) {
+            document.getElementById('statusBar').classList.remove('hidden');
+            document.getElementById('progressBar').classList.remove('hidden');
+            document.getElementById('statusLabel').textContent = label;
+            document.getElementById('statusDetail').textContent = detail;
+        }
+
+        function hideStatus() {
+            document.getElementById('statusBar').classList.add('hidden');
+            document.getElementById('progressBar').classList.add('hidden');
+        }
+
+        function showProgress(percent) {
+            document.getElementById('progressFill').style.width = percent + '%';
+        }
+
+        function showError(message) {
+            const el = document.getElementById('errorMessage');
+            el.textContent = message;
+            el.classList.remove('hidden');
+        }
+
+        function hideError() {
+            document.getElementById('errorMessage').classList.add('hidden');
+        }
+
+        function showVideo(url) {
+            const section = document.getElementById('videoSection');
+            const player = document.getElementById('videoPlayer');
+            const downloadBtn = document.getElementById('downloadBtn');
+            
+            player.src = url;
+            downloadBtn.href = url;
+            section.classList.remove('hidden');
+            player.play();
+        }
+
+        function resetForm() {
+            document.getElementById('promptInput').value = '';
+            document.getElementById('videoSection').classList.add('hidden');
+            document.getElementById('videoPlayer').pause();
+            document.getElementById('videoPlayer').src = '';
+            hideError();
+            hideStatus();
+            currentJobId = null;
+            if (pollInterval) clearInterval(pollInterval);
+        }
+
+        function loadHistoryItem(jobId) {
+            const item = history.find(h => h.job_id === jobId);
+            if (item && item.video_url) {
+                showVideo(item.video_url);
+            } else if (item) {
+                document.getElementById('promptInput').value = item.prompt;
+            }
+        }
+
+        renderHistory();
+    </script>
+</body>
+</html>
