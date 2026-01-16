@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Settings - WAN 2.2 Dream Studio{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 8px;">⚙️ Settings</h2>
+<p style="color: var(--text-muted); margin-bottom: 24px;">Configure your RunPod connection</p>
+
+<div class="card">
+    <h3 style="margin-bottom: 16px;">RunPod Configuration</h3>
+    <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 20px;">
+        Set these environment variables on Render to connect to RunPod compute.
+    </p>
+    
+    <div style="margin-bottom: 20px;">
+        <label style="font-weight: 600; display: block; margin-bottom: 8px;">RUNPOD_ENDPOINT_URL</label>
+        <div style="padding: 12px; background: var(--bg); border-radius: 8px; font-family: monospace; font-size: 14px;">
+            {% if runpod_configured %}
+            <span style="color: var(--success);">✓ Configured:</span> {{ runpod_endpoint }}
+            {% else %}
+            <span style="color: var(--error);">✗ Not configured</span>
+            {% endif %}
+        </div>
+    </div>
+    
+    <div style="margin-bottom: 20px;">
+        <label style="font-weight: 600; display: block; margin-bottom: 8px;">RUNPOD_API_KEY</label>
+        <div style="padding: 12px; background: var(--bg); border-radius: 8px; font-family: monospace; font-size: 14px;">
+            {% if has_api_key %}
+            <span style="color: var(--success);">✓ Configured</span> (hidden)
+            {% else %}
+            <span style="color: var(--warning);">○ Not set</span> (optional for public endpoints)
+            {% endif %}
+        </div>
+    </div>
+    
+    <button class="btn" onclick="testConnection()">🔌 Test Connection</button>
+    <div id="testResult" style="margin-top: 16px;"></div>
+</div>
+
+<div class="card" style="margin-top: 24px;">
+    <h3 style="margin-bottom: 16px;">Environment Variables</h3>
+    <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px;">
+        Add these to your Render dashboard → Environment:
+    </p>
+    <pre style="background: var(--bg); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px;">
+RUNPOD_ENDPOINT_URL=https://api.runpod.ai/v2/your-endpoint-id
+RUNPOD_API_KEY=your-api-key-here
+PUBLIC_BASE_URL=https://your-app.onrender.com</pre>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function testConnection() {
+    const result = document.getElementById('testResult');
+    result.innerHTML = '<span style="color: var(--text-muted);">Testing...</span>';
+    try {
+        const res = await fetch('/api/test-connection', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+            result.innerHTML = '<span style="color: var(--success);">✓ ' + data.message + '</span>';
+        } else {
+            result.innerHTML = '<span style="color: var(--error);">✗ ' + data.error + '</span>';
+        }
+    } catch (err) {
+        result.innerHTML = '<span style="color: var(--error);">✗ ' + err.message + '</span>';
+    }
+}
+</script>
+{% endblock %}
